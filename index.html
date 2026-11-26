@@ -17,8 +17,10 @@ h1{font-size:1.25rem;margin:0 0 4px}
 p.s{color:var(--mu);margin:0 0 12px;font-size:.9rem}
 .btn{display:block;width:100%;padding:14px;border:0;border-radius:12px;background:var(--ac);color:#fff;font-size:1rem;font-weight:600;text-align:center;cursor:pointer}
 .box{margin-top:12px;background:var(--card);border-radius:12px;padding:8px;overflow:hidden}
-canvas{display:block;width:100%;touch-action:none}
-#st{margin-top:10px;font-size:.9rem;color:var(--mu)}
+canvas{display:block;width:100%;touch-action:pan-y;margin:0 auto}
+#out{width:auto;max-width:100%;max-height:70vh}
+#go{position:sticky;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:5;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+#st{margin:0 0 10px;font-size:.9rem;color:var(--mu);min-height:1.2em}
 .row{display:flex;gap:8px;margin-top:12px}
 .row button{flex:1;padding:10px;border:2px solid var(--ac);border-radius:10px;background:transparent;color:var(--fg);font-size:.9rem;font-weight:600;cursor:pointer}
 .row button.on{background:var(--ac);color:#fff}
@@ -41,6 +43,7 @@ canvas{display:block;width:100%;touch-action:none}
 <main>
   <h1>Escáner de documentos</h1>
   <p class="s">Captura, bordes, modo escaneo y exportación a JPG y PDF</p>
+  <div id="st">Cargando OpenCV (la primera vez tarda unos segundos)…</div>
   <label class="btn" for="f">Tomar foto o elegir imagen</label>
   <input id="f" type="file" accept="image/*" capture="environment" hidden>
   <label class="btn alt" for="g">Elegir varias de la galería</label>
@@ -74,8 +77,7 @@ canvas{display:block;width:100%;touch-action:none}
     <button class="btn alt" id="clr">Vaciar páginas</button>
     <p class="s" id="cnt" style="margin-top:8px"></p>
   </div>
-  <div id="st">Cargando OpenCV (la primera vez tarda unos segundos)…</div>
-</main>
+  </main>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.9.0-release.3/dist/opencv.js"></script>
 <script>
@@ -262,9 +264,9 @@ function run(){
 }
 
 function draw(){
-  var w=cvs.parentElement.clientWidth-16;sc=w/img.width;
+  var w=Math.min(cvs.parentElement.clientWidth-16,Math.max(200,Math.round(innerHeight*0.62*img.width/img.height)));sc=w/img.width;
   document.getElementById('go').hidden=false;
-  cvs.width=w;cvs.height=Math.round(img.height*sc);
+  cvs.width=w;cvs.height=Math.round(img.height*sc);cvs.style.width=w+'px';
   ctx.drawImage(img,0,0,cvs.width,cvs.height);
   ctx.beginPath();
   pts.forEach(function(p,i){i?ctx.lineTo(p.x*sc,p.y*sc):ctx.moveTo(p.x*sc,p.y*sc)});
@@ -272,22 +274,40 @@ function draw(){
   ctx.fillStyle='rgba(13,148,136,.18)';ctx.fill();
   ctx.lineWidth=3;ctx.strokeStyle='#14b8a6';ctx.stroke();
   pts.forEach(function(p){
-    ctx.beginPath();ctx.arc(p.x*sc,p.y*sc,11,0,7);
+    ctx.beginPath();ctx.arc(p.x*sc,p.y*sc,14,0,7);
     ctx.fillStyle='#fff';ctx.fill();ctx.lineWidth=3;ctx.stroke();
   });
+  if(drag>-1){
+    var q=pts[drag],R=52,z=2.5,lx=q.x*sc<cvs.width/2?cvs.width-R-8:R+8,ly=R+8,sr=R/z/sc;
+    ctx.save();ctx.beginPath();ctx.arc(lx,ly,R,0,7);ctx.clip();
+    ctx.fillStyle='#000';ctx.fillRect(lx-R,ly-R,2*R,2*R);
+    ctx.drawImage(img,q.x-sr,q.y-sr,2*sr,2*sr,lx-R,ly-R,2*R,2*R);
+    ctx.restore();
+    ctx.beginPath();ctx.arc(lx,ly,R,0,7);ctx.lineWidth=3;ctx.strokeStyle='#14b8a6';ctx.stroke();
+    ctx.beginPath();ctx.moveTo(lx-10,ly);ctx.lineTo(lx+10,ly);ctx.moveTo(lx,ly-10);ctx.lineTo(lx,ly+10);
+    ctx.lineWidth=1.5;ctx.strokeStyle='#f43f5e';ctx.stroke();
+  }
 }
 
 function pos(e){var r=cvs.getBoundingClientRect();return{x:(e.clientX-r.left)/sc,y:(e.clientY-r.top)/sc}}
 cvs.addEventListener('pointerdown',function(e){
-  if(!img)return;var q=pos(e),bd=40/sc;drag=-1;
+  if(!img)return;var q=pos(e),bd=48/sc;drag=-1;
   pts.forEach(function(p,i){var d=Math.hypot(p.x-q.x,p.y-q.y);if(d<bd){bd=d;drag=i}});
-  if(drag>-1)cvs.setPointerCapture(e.pointerId);
+  if(drag>-1){cvs.setPointerCapture(e.pointerId);draw()}
 });
 cvs.addEventListener('pointermove',function(e){
   if(drag<0)return;var q=pos(e);
   pts[drag]={x:Math.max(0,Math.min(img.width,q.x)),y:Math.max(0,Math.min(img.height,q.y))};draw();
 });
-cvs.addEventListener('pointerup',function(){drag=-1});
+function endDrag(){if(drag>-1){drag=-1;if(img)draw()}}
+cvs.addEventListener('pointerup',endDrag);
+cvs.addEventListener('pointercancel',endDrag);
+/* El scroll vertical sobre la imagen funciona normal; solo se bloquea al tocar una esquina */
+cvs.addEventListener('touchstart',function(e){
+  if(!img||!e.touches.length)return;
+  var t=e.touches[0],r=cvs.getBoundingClientRect(),x=(t.clientX-r.left)/sc,y=(t.clientY-r.top)/sc;
+  if(pts.some(function(p){return Math.hypot(p.x-x,p.y-y)<48/sc}))e.preventDefault();
+},{passive:false});
 window.addEventListener('resize',function(){if(img&&pts.length)draw()});
 
 /* Paso 3: perspectiva y modo escaneo */
