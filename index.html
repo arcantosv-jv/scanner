@@ -17,17 +17,36 @@ p.s{color:var(--mu);margin:0 0 12px;font-size:.9rem}
 .box{margin-top:12px;background:var(--card);border-radius:12px;padding:8px;overflow:hidden}
 canvas{display:block;width:100%;touch-action:none}
 #st{margin-top:10px;font-size:.9rem;color:var(--mu)}
+.row{display:flex;gap:8px;margin-top:12px}
+.row button{flex:1;padding:10px;border:2px solid var(--ac);border-radius:10px;background:transparent;color:var(--fg);font-size:.9rem;font-weight:600;cursor:pointer}
+.row button.on{background:var(--ac);color:#fff}
+.go{margin-top:12px;border:0;font-family:inherit}
 </style>
 </head>
 <body>
 <main>
   <h1>Escáner de documentos</h1>
-  <p class="s">Paso 1 y 2: captura y detección de bordes</p>
+  <p class="s">Captura, bordes, modo escaneo y exportación a JPG y PDF</p>
   <label class="btn" for="f">Tomar foto o elegir imagen</label>
   <input id="f" type="file" accept="image/*" capture="environment" hidden>
   <div class="box" id="box" hidden><canvas id="cv"></canvas></div>
+  <button class="btn go" id="go" hidden>Escanear</button>
+  <div id="res" hidden>
+    <div class="row" id="modes">
+      <button data-m="color">Color</button>
+      <button data-m="gray">Grises</button>
+      <button data-m="bw" class="on">Blanco y negro</button>
+    </div>
+    <div class="box"><canvas id="out"></canvas></div>
+    <div class="row"><button id="add">Agregar página</button><button id="jpg">Guardar JPG</button></div>
+  </div>
+  <div id="exp" hidden>
+    <button class="btn go" id="pdf">Guardar PDF</button>
+    <p class="s" id="cnt" style="margin-top:8px"></p>
+  </div>
   <div id="st">Cargando OpenCV (la primera vez tarda unos segundos)…</div>
 </main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.9.0-release.3/dist/opencv.js"></script>
 <script>
 var ready=false,img=null,pts=[],drag=-1,sc=1;
@@ -44,7 +63,7 @@ function onReady(){ready=true;st.textContent='Listo. Toma o elige una foto del d
 document.getElementById('f').addEventListener('change',function(e){
   var file=e.target.files[0];if(!file)return;
   var im=new Image();
-  im.onload=function(){img=im;document.getElementById('box').hidden=false;if(ready)run();else st.textContent='Esperando OpenCV…'};
+  im.onload=function(){img=im;base=null;document.getElementById('res').hidden=true;document.getElementById('box').hidden=false;if(ready)run();else st.textContent='Esperando OpenCV…'};
   im.src=URL.createObjectURL(file);
 });
 
@@ -54,6 +73,49 @@ function order(p){
 }
 
 function detect(im){
+  var k=Math.min(1,450/Math.max(im.width,im.height)),c=document.createElement('canvas');
+  c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);
+  c.getContext('2d').drawImage(im,0,0,c.width,c.height);
+  var src=cv.imread(c),g=new cv.Mat(),m1=new cv.Mat(),m2=new cv.Mat(),m3=new cv.Mat();
+  cv.cvtColor(src,g,cv.COLOR_RGBA2GRAY);
+  cv.GaussianBlur(g,g,new cv.Size(9,9),0);
+  cv.Canny(g,m1,40,120);
+  cv.threshold(g,m2,0,255,cv.THRESH_BINARY+cv.THRESH_OTSU);
+  cv.bitwise_not(m2,m3);
+  var ker=cv.Mat.ones(15,15,cv.CV_8U),total=c.width*c.height,best=null,bestS=0;
+  [m1,m2,m3].forEach(function(m){
+    cv.morphologyEx(m,m,cv.MORPH_CLOSE,ker,new cv.Point(-1,-1),3);
+    var cs=new cv.MatVector(),h=new cv.Mat();
+    cv.findContours(m,cs,h,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE);
+    for(var i=0;i<cs.size();i++){
+      var cnt=cs.get(i),a=cv.contourArea(cnt);
+      if(a>total*0.1&&a<total*0.97){
+        var hull=new cv.Mat();cv.convexHull(cnt,hull,false,true);
+        var per=cv.arcLength(hull,true),q=null,s=a;
+        for(var e=0.01;e<=0.08&&!q;e+=0.01){
+          var ap=new cv.Mat();cv.approxPolyDP(hull,ap,e*per,true);
+          if(ap.rows===4){q=[];for(var j=0;j<4;j++)q.push({x:ap.data32S[j*2]/k,y:ap.data32S[j*2+1]/k})}
+          ap.delete();
+        }
+        if(!q){
+          var pp=cv.RotatedRect.points(cv.minAreaRect(hull));
+          q=pp.map(function(p){return{x:Math.max(0,Math.min(c.width,p.x))/k,y:Math.max(0,Math.min(c.height,p.y))/k}});
+          s=a*0.85;
+        }
+        var r=cv.boundingRect(cnt);
+        if(r.x<=2||r.y<=2||r.x+r.width>=c.width-2||r.y+r.height>=c.height-2)s*=0.5;
+        if(s>bestS){bestS=s;best=q}
+        hull.delete();
+      }
+      cnt.delete();
+    }
+    cs.delete();h.delete();
+  });
+  src.delete();g.delete();m1.delete();m2.delete();m3.delete();ker.delete();
+  return best?order(best):null;
+}
+
+function detectOld(im){
   var k=Math.min(1,600/Math.max(im.width,im.height)),c=document.createElement('canvas');
   c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);
   c.getContext('2d').drawImage(im,0,0,c.width,c.height);
@@ -95,6 +157,7 @@ function run(){
 
 function draw(){
   var w=cvs.parentElement.clientWidth-16;sc=w/img.width;
+  document.getElementById('go').hidden=false;
   cvs.width=w;cvs.height=Math.round(img.height*sc);
   ctx.drawImage(img,0,0,cvs.width,cvs.height);
   ctx.beginPath();
@@ -120,6 +183,83 @@ cvs.addEventListener('pointermove',function(e){
 });
 cvs.addEventListener('pointerup',function(){drag=-1});
 window.addEventListener('resize',function(){if(img&&pts.length)draw()});
+
+/* Paso 3: perspectiva y modo escaneo */
+var base=null,mode='bw',out=document.getElementById('out');
+function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
+
+document.getElementById('go').addEventListener('click',function(){
+  if(!ready||!img)return;
+  var p=pts,w=Math.max(dist(p[0],p[1]),dist(p[3],p[2])),h=Math.max(dist(p[0],p[3]),dist(p[1],p[2])),k=Math.min(1,2000/Math.max(w,h));
+  w=Math.round(w*k);h=Math.round(h*k);
+  var c=document.createElement('canvas');c.width=img.width;c.height=img.height;c.getContext('2d').drawImage(img,0,0);
+  var src=cv.imread(c),dst=new cv.Mat();
+  var a=cv.matFromArray(4,1,cv.CV_32FC2,[p[0].x,p[0].y,p[1].x,p[1].y,p[2].x,p[2].y,p[3].x,p[3].y]);
+  var b=cv.matFromArray(4,1,cv.CV_32FC2,[0,0,w,0,w,h,0,h]);
+  var M=cv.getPerspectiveTransform(a,b);
+  cv.warpPerspective(src,dst,M,new cv.Size(w,h),cv.INTER_LINEAR,cv.BORDER_CONSTANT,new cv.Scalar());
+  base=document.createElement('canvas');cv.imshow(base,dst);
+  src.delete();dst.delete();a.delete();b.delete();M.delete();
+  document.getElementById('res').hidden=false;document.getElementById('exp').hidden=false;count();
+  apply();
+  out.scrollIntoView({behavior:'smooth'});
+});
+
+function apply(){
+  if(!base)return;
+  var m=cv.imread(base);
+  if(mode!=='color')cv.cvtColor(m,m,cv.COLOR_RGBA2GRAY);
+  if(mode==='bw')cv.adaptiveThreshold(m,m,255,cv.ADAPTIVE_THRESH_GAUSSIAN_C,cv.THRESH_BINARY,21,15);
+  cv.imshow(out,m);m.delete();
+}
+
+document.getElementById('modes').addEventListener('click',function(e){
+  var m=e.target.getAttribute('data-m');if(!m)return;
+  mode=m;
+  Array.prototype.forEach.call(this.children,function(b){b.classList.toggle('on',b===e.target)});
+  apply();
+});
+
+/* Paso 5: exportar JPG y PDF */
+var pages=[],dl=null;
+(window.claude&&claude.use?claude.use('downloads'):Promise.resolve(null)).then(function(d){dl=d}).catch(function(){});
+
+function count(){
+  var n=pages.length+(base?1:0);
+  document.getElementById('cnt').textContent=n+(n===1?' página lista para el PDF':' páginas listas para el PDF');
+}
+function cur(){return{url:out.toDataURL('image/jpeg',0.88),w:out.width,h:out.height}}
+async function save(name,data){
+  if(!dl){st.textContent='La descarga no está disponible en esta vista. Abre el enlace en el navegador.';return}
+  try{await dl.save({filename:name,data:data});st.textContent='Archivo guardado.'}
+  catch(e){if(!e||e.code!=='declined')st.textContent='No se pudo guardar ('+((e&&e.code)||'error')+').'}
+}
+
+document.getElementById('add').addEventListener('click',function(){
+  if(!base)return;
+  pages.push(cur());base=null;
+  document.getElementById('res').hidden=true;
+  count();
+  st.textContent='Página '+pages.length+' agregada. Toma otra foto o guarda el PDF.';
+  window.scrollTo({top:0,behavior:'smooth'});
+});
+
+document.getElementById('jpg').addEventListener('click',function(){
+  if(!base)return;
+  out.toBlob(function(b){save('escaneo.jpg',b)},'image/jpeg',0.9);
+});
+
+document.getElementById('pdf').addEventListener('click',function(){
+  var list=pages.slice();if(base)list.push(cur());
+  if(!list.length||!window.jspdf)return;
+  var d=null;
+  list.forEach(function(p){
+    var w=595,h=Math.round(595*p.h/p.w),o=h>=w?'p':'l';
+    if(!d)d=new window.jspdf.jsPDF({orientation:o,unit:'pt',format:[w,h]});else d.addPage([w,h],o);
+    d.addImage(p.url,'JPEG',0,0,w,h);
+  });
+  save('escaneo.pdf',d.output('blob'));
+});
 </script>
 </body>
 </html>
