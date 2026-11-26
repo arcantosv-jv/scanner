@@ -24,6 +24,7 @@ canvas{display:block;width:100%;touch-action:none}
 .row button.on{background:var(--ac);color:#fff}
 .go{margin-top:12px;border:0;font-family:inherit}
 [hidden]{display:none!important}
+.row select{flex:1;min-width:0;padding:10px;border-radius:10px;border:2px solid var(--mu);background:var(--card);color:var(--fg);font-size:.9rem}
 .btn.alt{background:transparent;color:var(--ac);border:2px solid var(--ac);margin-top:8px}
 .tune{margin-top:10px;display:grid;gap:6px;font-size:.85rem;color:var(--mu)}
 .tune label{display:flex;align-items:center;gap:8px}
@@ -64,7 +65,13 @@ canvas{display:block;width:100%;touch-action:none}
   <div id="exp" hidden>
     <div class="thumbs" id="th"></div>
     <input id="fn" placeholder="Nombre del archivo (opcional)" maxlength="60">
+    <div class="row" style="margin:0 0 8px">
+      <select id="ql"><option value="alta">Calidad alta</option><option value="media" selected>Calidad media</option><option value="baja">Calidad baja (más ligero)</option></select>
+      <select id="sz"><option value="fit" selected>Hoja ajustada</option><option value="letter">Carta</option><option value="a4">A4</option></select>
+    </div>
     <button class="btn go" id="pdf">Guardar PDF</button>
+    <button class="btn alt" id="shr">Compartir PDF</button>
+    <button class="btn alt" id="clr">Vaciar páginas</button>
     <p class="s" id="cnt" style="margin-top:8px"></p>
   </div>
   <div id="st">Cargando OpenCV (la primera vez tarda unos segundos)…</div>
@@ -400,6 +407,7 @@ function renderPages(){
     });
     d.appendChild(im);d.appendChild(t);d.appendChild(r);th.appendChild(d);
   });
+  persist();
 }
 function mv(i,d){var j=i+d;if(j<0||j>=pages.length)return;var t=pages[i];pages[i]=pages[j];pages[j]=t;renderPages()}
 function rotPage(i){
@@ -424,6 +432,35 @@ $('g').addEventListener('change',function(e){
 });
 
 if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol))navigator.serviceWorker.register('sw.js').catch(function(){});
+
+/* Persistencia local (IndexedDB) */
+var dbp=null,clrT=0;
+function idb(){
+  return dbp||(dbp=new Promise(function(res,rej){
+    var r=indexedDB.open('scanner',1);
+    r.onupgradeneeded=function(){r.result.createObjectStore('kv')};
+    r.onsuccess=function(){res(r.result)};
+    r.onerror=function(){rej(r.error)};
+  }));
+}
+function persist(){
+  idb().then(function(d){d.transaction('kv','readwrite').objectStore('kv').put(pages,'pages')}).catch(function(){});
+}
+function restore(){
+  idb().then(function(d){
+    var q=d.transaction('kv').objectStore('kv').get('pages');
+    q.onsuccess=function(){
+      if(q.result&&q.result.length){pages=q.result;renderPages();count();$('exp').hidden=false}
+    };
+  }).catch(function(){});
+}
+restore();
+$('clr').addEventListener('click',function(){
+  var b=this;
+  if(!clrT){b.textContent='Toca otra vez para borrar todo';clrT=setTimeout(function(){clrT=0;b.textContent='Vaciar páginas'},3000);return}
+  clearTimeout(clrT);clrT=0;b.textContent='Vaciar páginas';
+  pages=[];renderPages();count();st.textContent='Páginas borradas.';
+});
 
 /* Paso 5: exportar JPG y PDF */
 var pages=[],dl=null;
@@ -464,16 +501,42 @@ document.getElementById('jpg').addEventListener('click',function(){
   out.toBlob(function(b){save(fname('jpg'),b)},'image/jpeg',0.9);
 });
 
-document.getElementById('pdf').addEventListener('click',function(){
+function loadImg(u){return new Promise(function(r){var i=new Image();i.onload=function(){r(i)};i.src=u})}
+async function makePdf(){
   var list=pages.slice();if(base)list.push(cur());
-  if(!list.length||!window.jspdf)return;
-  var d=null;
-  list.forEach(function(p){
-    var w=595,h=Math.round(595*p.h/p.w),o=h>=w?'p':'l';
+  if(!list.length||!window.jspdf)return null;
+  var q={alta:[2000,0.9],media:[1400,0.75],baja:[1000,0.6]}[$('ql').value]||[1400,0.75],sz=$('sz').value,d=null;
+  for(var n=0;n<list.length;n++){
+    var p=list[n],im=await loadImg(p.url),k=Math.min(1,q[0]/Math.max(p.w,p.h)),c=document.createElement('canvas');
+    c.width=Math.round(p.w*k);c.height=Math.round(p.h*k);
+    c.getContext('2d').drawImage(im,0,0,c.width,c.height);
+    var w,h,x=0,y=0,iw,ih,o;
+    if(sz==='fit'){w=595;h=Math.round(595*p.h/p.w);iw=w;ih=h}
+    else{
+      var pg=sz==='letter'?[612,792]:[595,842],land=p.w>p.h;
+      w=land?pg[1]:pg[0];h=land?pg[0]:pg[1];
+      var s=Math.min(w/p.w,h/p.h);iw=p.w*s;ih=p.h*s;x=(w-iw)/2;y=(h-ih)/2;
+    }
+    o=h>=w?'p':'l';
     if(!d)d=new window.jspdf.jsPDF({orientation:o,unit:'pt',format:[w,h]});else d.addPage([w,h],o);
-    d.addImage(p.url,'JPEG',0,0,w,h);
-  });
-  save(fname('pdf'),d.output('blob'));
+    d.addImage(c.toDataURL('image/jpeg',q[1]),'JPEG',x,y,iw,ih);
+  }
+  return d;
+}
+$('pdf').addEventListener('click',async function(){
+  st.textContent='Generando PDF…';
+  var d=await makePdf();
+  if(d)save(fname('pdf'),d.output('blob'));else st.textContent='No hay páginas para guardar.';
+});
+$('shr').addEventListener('click',async function(){
+  st.textContent='Generando PDF…';
+  var d=await makePdf();
+  if(!d){st.textContent='No hay páginas para compartir.';return}
+  var f=new File([d.output('blob')],fname('pdf'),{type:'application/pdf'});
+  if(navigator.canShare&&navigator.canShare({files:[f]})){
+    try{await navigator.share({files:[f],title:f.name});st.textContent='Listo.'}
+    catch(e){st.textContent=(e&&e.name==='AbortError')?'Compartir cancelado.':'No se pudo compartir. Usa Guardar PDF.'}
+  }else st.textContent='Este navegador no permite compartir archivos aquí. Usa Guardar PDF.';
 });
 </script>
 </body>
