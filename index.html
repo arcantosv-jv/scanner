@@ -26,7 +26,7 @@ canvas{display:block;width:100%;touch-action:none}
 <body>
 <main>
   <h1>Escáner de documentos</h1>
-  <p class="s">Captura, bordes, modo escaneo y exportación a JPG y PDF</p>
+  <p class="s">Pasos 1 a 3: captura, bordes y modo escaneo</p>
   <label class="btn" for="f">Tomar foto o elegir imagen</label>
   <input id="f" type="file" accept="image/*" capture="environment" hidden>
   <div class="box" id="box" hidden><canvas id="cv"></canvas></div>
@@ -38,15 +38,9 @@ canvas{display:block;width:100%;touch-action:none}
       <button data-m="bw" class="on">Blanco y negro</button>
     </div>
     <div class="box"><canvas id="out"></canvas></div>
-    <div class="row"><button id="add">Agregar página</button><button id="jpg">Guardar JPG</button></div>
-  </div>
-  <div id="exp" hidden>
-    <button class="btn go" id="pdf">Guardar PDF</button>
-    <p class="s" id="cnt" style="margin-top:8px"></p>
   </div>
   <div id="st">Cargando OpenCV (la primera vez tarda unos segundos)…</div>
 </main>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.9.0-release.3/dist/opencv.js"></script>
 <script>
 var ready=false,img=null,pts=[],drag=-1,sc=1;
@@ -63,7 +57,7 @@ function onReady(){ready=true;st.textContent='Listo. Toma o elige una foto del d
 document.getElementById('f').addEventListener('change',function(e){
   var file=e.target.files[0];if(!file)return;
   var im=new Image();
-  im.onload=function(){img=im;base=null;document.getElementById('res').hidden=true;document.getElementById('box').hidden=false;if(ready)run();else st.textContent='Esperando OpenCV…'};
+  im.onload=function(){img=im;document.getElementById('box').hidden=false;if(ready)run();else st.textContent='Esperando OpenCV…'};
   im.src=URL.createObjectURL(file);
 });
 
@@ -200,7 +194,7 @@ document.getElementById('go').addEventListener('click',function(){
   cv.warpPerspective(src,dst,M,new cv.Size(w,h),cv.INTER_LINEAR,cv.BORDER_CONSTANT,new cv.Scalar());
   base=document.createElement('canvas');cv.imshow(base,dst);
   src.delete();dst.delete();a.delete();b.delete();M.delete();
-  document.getElementById('res').hidden=false;document.getElementById('exp').hidden=false;count();
+  document.getElementById('res').hidden=false;
   apply();
   out.scrollIntoView({behavior:'smooth'});
 });
@@ -218,47 +212,6 @@ document.getElementById('modes').addEventListener('click',function(e){
   mode=m;
   Array.prototype.forEach.call(this.children,function(b){b.classList.toggle('on',b===e.target)});
   apply();
-});
-
-/* Paso 5: exportar JPG y PDF */
-var pages=[],dl=null;
-(window.claude&&claude.use?claude.use('downloads'):Promise.resolve(null)).then(function(d){dl=d}).catch(function(){});
-
-function count(){
-  var n=pages.length+(base?1:0);
-  document.getElementById('cnt').textContent=n+(n===1?' página lista para el PDF':' páginas listas para el PDF');
-}
-function cur(){return{url:out.toDataURL('image/jpeg',0.88),w:out.width,h:out.height}}
-async function save(name,data){
-  if(!dl){st.textContent='La descarga no está disponible en esta vista. Abre el enlace en el navegador.';return}
-  try{await dl.save({filename:name,data:data});st.textContent='Archivo guardado.'}
-  catch(e){if(!e||e.code!=='declined')st.textContent='No se pudo guardar ('+((e&&e.code)||'error')+').'}
-}
-
-document.getElementById('add').addEventListener('click',function(){
-  if(!base)return;
-  pages.push(cur());base=null;
-  document.getElementById('res').hidden=true;
-  count();
-  st.textContent='Página '+pages.length+' agregada. Toma otra foto o guarda el PDF.';
-  window.scrollTo({top:0,behavior:'smooth'});
-});
-
-document.getElementById('jpg').addEventListener('click',function(){
-  if(!base)return;
-  out.toBlob(function(b){save('escaneo.jpg',b)},'image/jpeg',0.9);
-});
-
-document.getElementById('pdf').addEventListener('click',function(){
-  var list=pages.slice();if(base)list.push(cur());
-  if(!list.length||!window.jspdf)return;
-  var d=null;
-  list.forEach(function(p){
-    var w=595,h=Math.round(595*p.h/p.w),o=h>=w?'p':'l';
-    if(!d)d=new window.jspdf.jsPDF({orientation:o,unit:'pt',format:[w,h]});else d.addPage([w,h],o);
-    d.addImage(p.url,'JPEG',0,0,w,h);
-  });
-  save('escaneo.pdf',d.output('blob'));
 });
 </script>
 </body>
