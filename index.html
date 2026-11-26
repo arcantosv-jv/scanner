@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Escáner de documentos</title>
+<style>
+:root{--bg:#f5f5f4;--fg:#1c1917;--card:#fff;--ac:#0d9488;--mu:#78716c;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1c1917;--fg:#f5f5f4;--card:#292524;--ac:#2dd4bf;--mu:#a8a29e}}
+:root[data-theme="dark"]{--bg:#1c1917;--fg:#f5f5f4;--card:#292524;--ac:#2dd4bf;--mu:#a8a29e}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:640px;margin:0 auto;padding:16px}
+h1{font-size:1.25rem;margin:0 0 4px}
+p.s{color:var(--mu);margin:0 0 12px;font-size:.9rem}
+.btn{display:block;width:100%;padding:14px;border:0;border-radius:12px;background:var(--ac);color:#fff;font-size:1rem;font-weight:600;text-align:center;cursor:pointer}
+.box{margin-top:12px;background:var(--card);border-radius:12px;padding:8px;overflow:hidden}
+canvas{display:block;width:100%;touch-action:none}
+#st{margin-top:10px;font-size:.9rem;color:var(--mu)}
+</style>
+</head>
+<body>
+<main>
+  <h1>Escáner de documentos</h1>
+  <p class="s">Paso 1 y 2: captura y detección de bordes</p>
+  <label class="btn" for="f">Tomar foto o elegir imagen</label>
+  <input id="f" type="file" accept="image/*" capture="environment" hidden>
+  <div class="box" id="box" hidden><canvas id="cv"></canvas></div>
+  <div id="st">Cargando OpenCV (la primera vez tarda unos segundos)…</div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.9.0-release.3/dist/opencv.js"></script>
+<script>
+var ready=false,img=null,pts=[],drag=-1,sc=1;
+var st=document.getElementById('st'),cvs=document.getElementById('cv'),ctx=cvs.getContext('2d');
+
+function onReady(){ready=true;st.textContent='Listo. Toma o elige una foto del documento.';if(img)run()}
+(function wait(){
+  if(typeof cv==='undefined'){setTimeout(wait,200);return}
+  if(cv instanceof Promise){cv.then(function(m){window.cv=m;onReady()})}
+  else if(cv.Mat){onReady()}
+  else{cv.onRuntimeInitialized=onReady}
+})();
+
+document.getElementById('f').addEventListener('change',function(e){
+  var file=e.target.files[0];if(!file)return;
+  var im=new Image();
+  im.onload=function(){img=im;document.getElementById('box').hidden=false;if(ready)run();else st.textContent='Esperando OpenCV…'};
+  im.src=URL.createObjectURL(file);
+});
+
+function order(p){
+  var s=p.map(function(a){return a.x+a.y}),d=p.map(function(a){return a.y-a.x});
+  return [p[s.indexOf(Math.min.apply(0,s))],p[d.indexOf(Math.min.apply(0,d))],p[s.indexOf(Math.max.apply(0,s))],p[d.indexOf(Math.max.apply(0,d))]];
+}
+
+function detect(im){
+  var k=Math.min(1,600/Math.max(im.width,im.height)),c=document.createElement('canvas');
+  c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);
+  c.getContext('2d').drawImage(im,0,0,c.width,c.height);
+  var src=cv.imread(c),g=new cv.Mat(),e=new cv.Mat(),ker=cv.Mat.ones(5,5,cv.CV_8U),cs=new cv.MatVector(),h=new cv.Mat();
+  cv.cvtColor(src,g,cv.COLOR_RGBA2GRAY);
+  cv.GaussianBlur(g,g,new cv.Size(5,5),0);
+  cv.Canny(g,e,75,200);
+  cv.dilate(e,e,ker);
+  cv.findContours(e,cs,h,cv.RETR_LIST,cv.CHAIN_APPROX_SIMPLE);
+  var best=null,bestA=c.width*c.height*0.15;
+  for(var i=0;i<cs.size();i++){
+    var cnt=cs.get(i),a=cv.contourArea(cnt);
+    if(a>bestA){
+      var ap=new cv.Mat();
+      cv.approxPolyDP(cnt,ap,0.02*cv.arcLength(cnt,true),true);
+      if(ap.rows===4&&cv.isContourConvex(ap)){
+        best=[];
+        for(var j=0;j<4;j++)best.push({x:ap.data32S[j*2]/k,y:ap.data32S[j*2+1]/k});
+        bestA=a;
+      }
+      ap.delete();
+    }
+    cnt.delete();
+  }
+  src.delete();g.delete();e.delete();ker.delete();cs.delete();h.delete();
+  return best?order(best):null;
+}
+
+function run(){
+  st.textContent='Detectando bordes…';
+  setTimeout(function(){
+    var r=detect(img),m=Math.min(img.width,img.height)*0.05;
+    if(r){st.textContent='Bordes detectados. Arrastra las esquinas para ajustar.';pts=r}
+    else{st.textContent='No se detectó el documento. Ajusta las esquinas a mano.';
+      pts=[{x:m,y:m},{x:img.width-m,y:m},{x:img.width-m,y:img.height-m},{x:m,y:img.height-m}]}
+    draw();
+  },30);
+}
+
+function draw(){
+  var w=cvs.parentElement.clientWidth-16;sc=w/img.width;
+  cvs.width=w;cvs.height=Math.round(img.height*sc);
+  ctx.drawImage(img,0,0,cvs.width,cvs.height);
+  ctx.beginPath();
+  pts.forEach(function(p,i){i?ctx.lineTo(p.x*sc,p.y*sc):ctx.moveTo(p.x*sc,p.y*sc)});
+  ctx.closePath();
+  ctx.fillStyle='rgba(13,148,136,.18)';ctx.fill();
+  ctx.lineWidth=3;ctx.strokeStyle='#14b8a6';ctx.stroke();
+  pts.forEach(function(p){
+    ctx.beginPath();ctx.arc(p.x*sc,p.y*sc,11,0,7);
+    ctx.fillStyle='#fff';ctx.fill();ctx.lineWidth=3;ctx.stroke();
+  });
+}
+
+function pos(e){var r=cvs.getBoundingClientRect();return{x:(e.clientX-r.left)/sc,y:(e.clientY-r.top)/sc}}
+cvs.addEventListener('pointerdown',function(e){
+  if(!img)return;var q=pos(e),bd=40/sc;drag=-1;
+  pts.forEach(function(p,i){var d=Math.hypot(p.x-q.x,p.y-q.y);if(d<bd){bd=d;drag=i}});
+  if(drag>-1)cvs.setPointerCapture(e.pointerId);
+});
+cvs.addEventListener('pointermove',function(e){
+  if(drag<0)return;var q=pos(e);
+  pts[drag]={x:Math.max(0,Math.min(img.width,q.x)),y:Math.max(0,Math.min(img.height,q.y))};draw();
+});
+cvs.addEventListener('pointerup',function(){drag=-1});
+window.addEventListener('resize',function(){if(img&&pts.length)draw()});
+</script>
+</body>
+</html>
