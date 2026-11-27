@@ -6,6 +6,7 @@
 <title>Escáner de documentos</title>
 <meta name="theme-color" content="#0d9488">
 <link rel="manifest" href="manifest.webmanifest">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#f5f5f4;--fg:#1c1917;--card:#fff;--ac:#0d9488;--mu:#78716c;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1c1917;--fg:#f5f5f4;--card:#292524;--ac:#2dd4bf;--mu:#a8a29e}}
@@ -37,12 +38,38 @@ canvas{display:block;width:100%;touch-action:pan-y;margin:0 auto}
 .th div{display:flex;gap:4px;margin-top:4px}
 .th button{flex:1;padding:6px 0;border:0;border-radius:6px;background:var(--bg);color:var(--fg);font-size:.8rem;cursor:pointer}
 #fn{width:100%;box-sizing:border-box;margin-bottom:8px;padding:12px;border-radius:10px;border:2px solid var(--mu);background:var(--card);color:var(--fg);font-size:1rem}
+/* Diseño A: claro y limpio */
+:root{--bg:#F4F7F6;--fg:#10231F;--card:#fff;--ac:#0F766E;--onac:#fff;--mu:#46605B;--soft:#E6EEEC;--line:#B9CCC8;--stage:#DCE8E5}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0F1715;--fg:#E8F1EF;--card:#18231F;--ac:#2DD4BF;--onac:#06201C;--mu:#9DB5B0;--soft:#1F2D29;--line:#34504A;--stage:#1B2A26}}
+:root[data-theme="dark"]{--bg:#0F1715;--fg:#E8F1EF;--card:#18231F;--ac:#2DD4BF;--onac:#06201C;--mu:#9DB5B0;--soft:#1F2D29;--line:#34504A;--stage:#1B2A26}
+body{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+main{padding:20px 16px 28px}
+h1{font-size:1.5rem;font-weight:700;margin:0}
+.hd{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+.pill{background:var(--card);color:var(--ac);border-radius:999px;padding:8px 14px;font-size:.8rem;font-weight:600;white-space:nowrap}
+.btn{display:flex;align-items:center;justify-content:center;height:56px;padding:0 14px;border-radius:16px;color:var(--onac);font-size:1.05rem;box-sizing:border-box}
+.btn.alt{height:48px;border-radius:14px;color:var(--ac);background:var(--card);border:1.5px solid var(--line)}
+.box{background:var(--stage);border-radius:24px}
+#st{background:var(--card);border-radius:12px;padding:10px 12px}
+#modes{background:var(--soft);border-radius:14px;padding:4px;gap:4px}
+#modes button{border:0;height:44px;border-radius:10px;background:transparent;color:var(--mu)}
+#modes button.on{background:var(--card);color:var(--ac);box-shadow:0 1px 4px rgba(16,35,31,.15)}
+.row button{height:44px;padding:0;border:1.5px solid var(--line);border-radius:12px;background:var(--card);color:var(--fg)}
+#add{background:var(--ac);border-color:var(--ac);color:var(--onac)}
+.tune{background:var(--card);border-radius:16px;padding:12px 14px;color:var(--fg)}
+input[type=range],input[type=checkbox]{accent-color:var(--ac)}
+.th{border-radius:14px}
+:root{--warn:#B42318}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--warn:#FDA29B}}
+:root[data-theme="dark"]{--warn:#FDA29B}
+.btn.alt.warn{color:var(--warn);border-color:var(--warn)}
+#fn,.row select{border:1.5px solid var(--line);border-radius:12px}
 </style>
 </head>
 <body>
 <main>
-  <h1>Escáner de documentos</h1>
-  <p class="s">Captura, bordes, modo escaneo y exportación a JPG y PDF</p>
+  <div class="hd"><div><h1>Escáner</h1><p class="s" style="margin:2px 0 0">Captura y exporta tus documentos</p></div><div class="pill" id="pill">0 páginas</div></div>
+  
   <div id="st">Cargando OpenCV (la primera vez tarda unos segundos)…</div>
   <label class="btn" for="f">Tomar foto o elegir imagen</label>
   <input id="f" type="file" accept="image/*" capture="environment" hidden>
@@ -95,7 +122,7 @@ function onReady(){ready=true;st.textContent='Listo. Toma o elige una foto del d
 document.getElementById('f').addEventListener('change',function(e){
   var file=e.target.files[0];if(!file)return;
   var im=new Image();
-  im.onload=function(){img=im;base=null;document.getElementById('res').hidden=true;document.getElementById('box').hidden=false;if(ready)run();else st.textContent='Esperando OpenCV…'};
+  im.onload=function(){img=im;base=null;document.getElementById('res').hidden=true;document.getElementById('exp').hidden=true;document.getElementById('box').hidden=false;if(ready)run();else st.textContent='Esperando OpenCV…'};
   im.src=URL.createObjectURL(file);
 });
 
@@ -442,7 +469,7 @@ function rotPage(i){
 
 function loadFile(file){
   var im=new Image();
-  im.onload=function(){img=im;base=null;$('res').hidden=true;$('box').hidden=false;if(ready)run();else st.textContent='Esperando OpenCV…'};
+  im.onload=function(){img=im;base=null;$('res').hidden=true;$('exp').hidden=true;$('box').hidden=false;if(ready)run();else st.textContent='Esperando OpenCV…'};
   im.src=URL.createObjectURL(file);
 }
 $('g').addEventListener('change',function(e){
@@ -470,16 +497,24 @@ function restore(){
   idb().then(function(d){
     var q=d.transaction('kv').objectStore('kv').get('pages');
     q.onsuccess=function(){
-      if(q.result&&q.result.length){pages=q.result;renderPages();count();$('exp').hidden=false}
+      if(q.result&&q.result.length){pages=q.result;renderPages();count();if(!img)$('exp').hidden=false}
     };
   }).catch(function(){});
 }
 restore();
 $('clr').addEventListener('click',function(){
-  var b=this;
-  if(!clrT){b.textContent='Toca otra vez para borrar todo';clrT=setTimeout(function(){clrT=0;b.textContent='Vaciar páginas'},3000);return}
-  clearTimeout(clrT);clrT=0;b.textContent='Vaciar páginas';
-  pages=[];renderPages();count();st.textContent='Páginas borradas.';
+  var b=$('clr');
+  if(!clrT){
+    b.textContent='¿Seguro? Toca otra vez para borrar';b.classList.add('warn');
+    clrT=setTimeout(function(){clrT=0;b.textContent='Vaciar páginas';b.classList.remove('warn')},4000);
+    return;
+  }
+  clearTimeout(clrT);clrT=0;b.textContent='Vaciar páginas';b.classList.remove('warn');
+  pages=[];queue=[];base=null;img=null;pts=[];
+  $('res').hidden=true;$('box').hidden=true;$('go').hidden=true;$('exp').hidden=true;
+  renderPages();count();
+  st.textContent='Páginas borradas. Toma una foto para empezar de nuevo.';
+  window.scrollTo({top:0,behavior:'smooth'});
 });
 
 /* Paso 5: exportar JPG y PDF */
@@ -487,7 +522,7 @@ var pages=[],dl=null;
 (window.claude&&claude.use?claude.use('downloads'):Promise.resolve(null)).then(function(d){dl=d}).catch(function(){});
 
 function count(){
-  var n=pages.length+(base?1:0);
+  var n=pages.length+(base?1:0);document.getElementById('pill').textContent=pages.length+(pages.length===1?' página':' páginas');
   document.getElementById('cnt').textContent=n+(n===1?' página lista para el PDF':' páginas listas para el PDF')+(queue.length?' · '+queue.length+' fotos en cola':'');
 }
 function cur(){return{url:out.toDataURL('image/jpeg',0.88),w:out.width,h:out.height}}
@@ -512,7 +547,7 @@ document.getElementById('add').addEventListener('click',function(){
   count();
   renderPages();
   if(queue.length){loadFile(queue.shift());count();st.textContent='Página '+pages.length+' agregada. Cargando la siguiente foto…'}
-  else st.textContent='Página '+pages.length+' agregada. Toma otra foto o guarda el PDF.';
+  else{$('box').hidden=true;$('go').hidden=true;$('exp').hidden=false;st.textContent='Página '+pages.length+' agregada. Toma otra foto o guarda el PDF.'}
   window.scrollTo({top:0,behavior:'smooth'});
 });
 
